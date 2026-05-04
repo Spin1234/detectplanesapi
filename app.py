@@ -7,16 +7,17 @@ import time
 app = Flask(__name__)
 CORS(app)
 
-# OpenSky credentials (set in Render env variables)
+# 🔐 Optional OpenSky credentials (set in Render env)
 OPENSKY_USERNAME = os.environ.get("spark_n")
 OPENSKY_PASSWORD = os.environ.get("Open@sky1234")
 
-# Simple in-memory cache (to avoid rate limits)
+# ⚡ Cache to avoid rate limit + speed up
 CACHE = {
     "data": None,
-    "timestamp": 0
+    "timestamp": 0,
+    "params": None
 }
-CACHE_TTL = 15  # seconds
+CACHE_TTL = 30  # seconds
 
 
 @app.route("/")
@@ -35,53 +36,49 @@ def get_planes():
         if not all([lamin, lomin, lamax, lomax]):
             return jsonify({"error": "Missing parameters"}), 400
 
-        # ✅ Serve from cache if recent
+        # ✅ Check cache (same params + within TTL)
         current_time = time.time()
-        if CACHE["data"] and (current_time - CACHE["timestamp"] < CACHE_TTL):
+        current_params = (lamin, lomin, lamax, lomax)
+
+        if (
+            CACHE["data"] and
+            CACHE["params"] == current_params and
+            (current_time - CACHE["timestamp"] < CACHE_TTL)
+        ):
             return jsonify(CACHE["data"])
 
+        # 🌐 OpenSky API URL
         url = f"https://opensky-network.org/api/states/all?lamin={lamin}&lomin={lomin}&lamax={lamax}&lomax={lomax}"
 
-        # ✅ Retry logic
-        for attempt in range(3):
-            try:
-                if OPENSKY_USERNAME and OPENSKY_PASSWORD:
-                    response = requests.get(
-                        url,
-                        auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD),
-                        timeout=10
-                    )
-                else:
-                    response = requests.get(url, timeout=10)
+        # 🔥 FAST + SAFE request
+        try:
+            response = requests.get(
+                url,
+                auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME else None,
+                timeout=5   # ⚡ reduced to avoid worker timeout
+            )
+            response.raise_for_status()
 
-                # If success → break
-                if response.status_code == 200:
-                    break
+        except requests.exceptions.Timeout:
+            return jsonify({"error": "OpenSky timeout"}), 504
 
-                # If rate limit → wait and retry
-                if response.status_code == 429:
-                    time.sleep(5)
-
-            except requests.exceptions.RequestException:
-                time.sleep(2)
-
-        # ❌ Still failed
-        if response.status_code != 200:
+        except requests.exceptions.HTTPError as e:
             return jsonify({
-                "error": "OpenSky API blocked request",
-                "status_code": response.status_code,
-                "message": "Try again later or use authentication"
+                "error": "OpenSky HTTP error",
+                "status": response.status_code,
+                "details": str(e)
             }), response.status_code
 
-        # ✅ Safe JSON parse
+        except requests.exceptions.RequestException:
+            return jsonify({"error": "Connection failed"}), 500
+
+        # ✅ Parse JSON safely
         try:
             data = response.json()
         except Exception:
-            return jsonify({
-                "error": "Invalid response from OpenSky (not JSON)"
-            }), 500
+            return jsonify({"error": "Invalid JSON from OpenSky"}), 500
 
-        # ✅ Format clean response
+        # ✅ Format response
         planes = []
         if data.get("states"):
             for plane in data["states"]:
@@ -104,6 +101,7 @@ def get_planes():
         # ✅ Save to cache
         CACHE["data"] = result
         CACHE["timestamp"] = current_time
+        CACHE["params"] = current_params
 
         return jsonify(result)
 
