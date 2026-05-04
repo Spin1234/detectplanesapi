@@ -17,7 +17,7 @@ CACHE = {
     "timestamp": 0,
     "params": None
 }
-CACHE_TTL = 30  # seconds
+CACHE_TTL = 60  # seconds
 
 
 @app.route("/")
@@ -55,7 +55,7 @@ def get_planes():
             response = requests.get(
                 url,
                 auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME else None,
-                timeout=5   # ⚡ reduced to avoid worker timeout
+                timeout=8   # ⚡ reduced to avoid worker timeout
             )
             response.raise_for_status()
 
