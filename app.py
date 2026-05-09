@@ -54,13 +54,15 @@
 
 import os
 from flask import Flask, jsonify, request
+from flask_cors import CORS  # <-- REQUIRED for your JS fetch to work
 import requests
 
 app = Flask(__name__)
+CORS(app) # This allows your frontend to talk to this API
 
 @app.route("/planes")
 def get_planes():
-    # Get coords from URL
+    # Capture the bounding box coordinates
     params = {
         "lamin": request.args.get("lamin"),
         "lomin": request.args.get("lomin"),
@@ -68,30 +70,32 @@ def get_planes():
         "lomax": request.args.get("lomax")
     }
 
-    # OpenSky Credentials (Optional: set these in Render Environment Variables)
-    user = os.environ.get("spark_n")
-    pwd = os.environ.get("Open@sky1234")
-    auth = (user, pwd) if user and pwd else None
-
     try:
-        # We add a 'User-Agent' header so OpenSky doesn't think we are a bot
-        headers = {'User-Agent': 'Python-Flask-Tracker-App'}
+        # Use a generic browser-like User-Agent to help avoid instant blocks
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
         
+        # OpenSky is notoriously slow on the public API
         response = requests.get(
             "https://opensky-network.org/api/states/all", 
             params=params, 
-            auth=auth,
             headers=headers,
-            timeout=25  # Increased timeout
+            timeout=20 
         )
         
+        # Check if OpenSky returned a 429 (Too Many Requests)
+        if response.status_code == 429:
+            return jsonify({"error": "OpenSky rate limit hit. Try again in a minute."}), 429
+
         data = response.json()
         return jsonify(data)
 
     except requests.exceptions.Timeout:
-        return jsonify({"error": "OpenSky timed out. They might be busy."}), 504
+        return jsonify({"error": "OpenSky took too long to respond."}), 504
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
+    # Render requires host 0.0.0.0 and the PORT env variable
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
