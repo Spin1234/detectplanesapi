@@ -60,39 +60,60 @@ import requests
 app = Flask(__name__)
 CORS(app) # This allows your frontend to talk to this API
 
+# @app.route("/planes")
+# def get_planes():
+#     # Capture the bounding box coordinates
+#     params = {
+#         "lamin": request.args.get("lamin"),
+#         "lomin": request.args.get("lomin"),
+#         "lamax": request.args.get("lamax"),
+#         "lomax": request.args.get("lomax")
+#     }
+
+#     try:
+#         # Use a generic browser-like User-Agent to help avoid instant blocks
+#         headers = {
+#             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+#         }
+        
+#         # OpenSky is notoriously slow on the public API
+#         response = requests.get(
+#             "https://opensky-network.org/api/states/all", 
+#             params=params, 
+#             headers=headers,
+#             timeout=60 
+#         )
+        
+#         # Check if OpenSky returned a 429 (Too Many Requests)
+#         if response.status_code == 429:
+#             return jsonify({"error": "OpenSky rate limit hit. Try again in a minute."}), 429
+
+#         data = response.json()
+#         return jsonify(data)
+
+#     except requests.exceptions.Timeout:
+#         return jsonify({"error": "OpenSky took too long to respond."}), 504
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
 @app.route("/planes")
 def get_planes():
-    # Capture the bounding box coordinates
-    params = {
-        "lamin": request.args.get("lamin"),
-        "lomin": request.args.get("lomin"),
-        "lamax": request.args.get("lamax"),
-        "lomax": request.args.get("lomax")
-    }
-
+    # ADSB.lol uses center point + radius (in nautical miles)
+    # We will convert your bounding box center to a 30nm radius request
+    lat = (float(request.args.get("lamin")) + float(request.args.get("lamax"))) / 2
+    lon = (float(request.args.get("lomin")) + float(request.args.get("lomax"))) / 2
+    
     try:
-        # Use a generic browser-like User-Agent to help avoid instant blocks
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        # adsb.lol is much faster than OpenSky
+        target = f"https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/30"
         
-        # OpenSky is notoriously slow on the public API
-        response = requests.get(
-            "https://opensky-network.org/api/states/all", 
-            params=params, 
-            headers=headers,
-            timeout=60 
-        )
+        response = requests.get(target, timeout=10) # 10s is plenty for adsb.lol
         
-        # Check if OpenSky returned a 429 (Too Many Requests)
-        if response.status_code == 429:
-            return jsonify({"error": "OpenSky rate limit hit. Try again in a minute."}), 429
+        if response.status_code != 200:
+            return jsonify({"error": "ADSB.lol API issue"}), response.status_code
 
-        data = response.json()
-        return jsonify(data)
+        return jsonify(response.json())
 
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "OpenSky took too long to respond."}), 504
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
