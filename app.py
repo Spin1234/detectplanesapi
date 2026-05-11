@@ -81,7 +81,7 @@ def get_planes():
             "https://opensky-network.org/api/states/all", 
             params=params, 
             headers=headers,
-            timeout=20 
+            timeout=60 
         )
         
         # Check if OpenSky returned a 429 (Too Many Requests)
